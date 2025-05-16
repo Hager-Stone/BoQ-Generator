@@ -43,6 +43,11 @@
       border: 1px solid #ccc;
       border-radius: 4px;
     }
+    select#item {
+      max-height: 180px;
+      overflow-y: auto;
+      display: block;
+    }
     button {
       padding: 10px 20px;
       background-color: #b9933b;
@@ -98,6 +103,55 @@
       display: none;
       font-size: 12px;
     }
+    /* Custom dropdown styles */
+    .custom-dropdown {
+      position: relative;
+      width: 420px;
+      min-width: 350px;
+      max-width: 100%;
+    }
+    .dropdown-selected {
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: #fff;
+      cursor: pointer;
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .dropdown-list {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 0 0 4px 4px;
+      max-height: 240px;
+      overflow-y: auto;
+      z-index: 10;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      display: none;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .dropdown-item {
+      padding: 10px;
+      cursor: pointer;
+      white-space: normal;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      word-break: break-word;
+      min-height: 32px;
+    }
+    .dropdown-item:hover, .dropdown-item.selected {
+      background: #f0e1b0;
+      color: #353f54;
+    }
   </style>
 </head>
 <body>
@@ -115,7 +169,13 @@
     <div style="flex: 1;">
       <label for="item">Select Item:</label>
       <input type="text" id="itemSearch" placeholder="Search item..." style="margin-bottom: 6px; width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ccc;">
-      <select id="item"></select>
+      <div class="custom-dropdown">
+        <div class="dropdown-selected" id="itemSelected" onclick="toggleDropdown()">
+          <span id="selectedItemText">Select an item</span>
+          <i class="fas fa-chevron-down" id="dropdownIcon"></i>
+        </div>
+        <div class="dropdown-list" id="itemDropdown"></div>
+      </div>
       <span id="selectedUnit"></span>
     </div>
     <div style="flex: 1;">
@@ -203,33 +263,65 @@
     if (searchValue) {
       items = items.filter(row => (row.Description + '').toLowerCase().includes(searchValue));
     }
-    const itemSelect = document.getElementById("item");
-    itemSelect.innerHTML = ""; // Clear previous options
 
-    // Populate item dropdown
-    items.forEach(row => {
-      const option = document.createElement("option");
-      option.value = JSON.stringify(row); // store whole row as string
-      option.textContent = row.Description; // show description
-      option.setAttribute('data-unit', row.Unit); // store unit for display
-      itemSelect.appendChild(option);
-    });
-
+    // Update custom dropdown list
+    updateItemDropdown(items);
     // Show unit for the initially selected item
     showSelectedItemUnit();
-    itemSelect.onchange = showSelectedItemUnit;
+  }
+
+  function updateItemDropdown(items) {
+    const dropdown = document.getElementById("itemDropdown");
+    dropdown.innerHTML = '';
+    if (items.length === 0) {
+      const div = document.createElement("div");
+      div.className = "dropdown-item";
+      div.textContent = "No items found";
+      div.style.color = '#888';
+      div.style.cursor = 'default';
+      dropdown.appendChild(div);
+      return;
+    }
+    items.forEach(row => {
+      const div = document.createElement("div");
+      div.className = "dropdown-item";
+      div.textContent = row.Description;
+      div.title = row.Description;
+      div.onclick = (e) => {
+        e.stopPropagation();
+        selectItem(row);
+      };
+      dropdown.appendChild(div);
+    });
+  }
+
+  function selectItem(row) {
+    document.getElementById("selectedItemText").textContent = row.Description;
+    document.getElementById("itemSelected").setAttribute('data-value', JSON.stringify(row));
+    showSelectedItemUnit();
+    toggleDropdown();
+  }
+
+  function toggleDropdown() {
+    const dropdown = document.getElementById("itemDropdown");
+    if (dropdown.style.display === 'block' || dropdown.classList.contains('open')) {
+      dropdown.style.display = 'none';
+      dropdown.classList.remove('open');
+    } else {
+      dropdown.style.display = 'block';
+      dropdown.classList.add('open');
+    }
   }
 
   function showSelectedItemUnit() {
-    const itemSelect = document.getElementById("item");
+    const selected = document.getElementById("itemSelected").getAttribute('data-value');
     const unitSpan = document.getElementById("unitDisplay");
-    if (!itemSelect.value) {
+    if (!selected) {
       unitSpan.textContent = '';
       return;
     }
-    const selectedOption = itemSelect.options[itemSelect.selectedIndex];
-    const unit = selectedOption ? selectedOption.getAttribute('data-unit') : '';
-    unitSpan.textContent = unit ? `Unit: ${unit}` : '';
+    const row = JSON.parse(selected);
+    unitSpan.textContent = row.Unit ? `Unit: ${row.Unit}` : '';
   }
 
   // ----------------------------------------------------
@@ -241,7 +333,12 @@
       validateQuantity();
       return;
     }
-    const selectedRow = JSON.parse(document.getElementById("item").value); // decode string to object
+    const selected = document.getElementById("itemSelected").getAttribute('data-value');
+    if (!selected) {
+      alert('Please select an item.');
+      return;
+    }
+    const selectedRow = JSON.parse(selected); // decode string to object
     const amount = selectedRow.Rate * quantity;
 
     // Add item to internal data array for Excel export
@@ -372,6 +469,15 @@
     const itemSearch = document.getElementById('itemSearch');
     if (itemSearch) {
       itemSearch.addEventListener('input', filterItems);
+    }
+  });
+
+  // Close dropdown if clicked outside
+  document.addEventListener('click', function(event) {
+    const dropdown = document.getElementById('itemDropdown');
+    const selected = document.getElementById('itemSelected');
+    if (!dropdown.contains(event.target) && !selected.contains(event.target)) {
+      dropdown.classList.remove('open');
     }
   });
 </script>
