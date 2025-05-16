@@ -170,9 +170,10 @@
       sheetData = data; // Store data globally
 
       // Extract unique categories from sheet data
-      const categories = [...new Set(sheetData.map(row => row.Category))];
+      let categories = [...new Set(sheetData.map(row => row.Category))];
+      categories.sort();
+      categories.unshift('All'); // Add 'All' at the top
       const catSelect = document.getElementById("category");
-
       // Populate category dropdown
       categories.forEach(cat => {
         const option = document.createElement("option");
@@ -196,10 +197,11 @@
     const category = document.getElementById("category").value;
     const searchValue = document.getElementById("itemSearch") ? document.getElementById("itemSearch").value.trim().toLowerCase() : '';
 
-    // Filter items for selected category
-    let items = sheetData.filter(row => row.Category === category);
+    // Filter items for selected category, or all if 'All' is selected
+    let items = (category === 'All') ? sheetData.slice() : sheetData.filter(row => row.Category === category);
+    // Always filter by search value if present
     if (searchValue) {
-      items = items.filter(row => row.Description.toLowerCase().includes(searchValue));
+      items = items.filter(row => (row.Description + '').toLowerCase().includes(searchValue));
     }
     const itemSelect = document.getElementById("item");
     itemSelect.innerHTML = ""; // Clear previous options
@@ -334,10 +336,15 @@
   // 5. Export the BOQ as an Excel file using SheetJS
   // ----------------------------------------------------
   function downloadExcel() {
-    const worksheet = XLSX.utils.json_to_sheet(boqItems); // Convert JSON to Excel worksheet
-    const workbook = XLSX.utils.book_new();               // Create new workbook
-    XLSX.utils.book_append_sheet(workbook, worksheet, "BOQ"); // Add worksheet to workbook
-    XLSX.writeFile(workbook, "BOQ_Generated.xlsx");       // Trigger download
+    if (boqItems.length === 0) {
+      alert('No items in BOQ to export!');
+      return;
+    }
+    // Simple export: just export the boqItems as a flat table
+    const worksheet = XLSX.utils.json_to_sheet(boqItems);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "BOQ");
+    XLSX.writeFile(workbook, "BOQ_Generated.xlsx");
   }
 
   // ----------------------------------------------------
