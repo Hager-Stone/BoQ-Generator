@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BOQ Generator</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #e7c06a;
+    }
+    header {
+      background-color: #353f54;
+      color: white;
+      padding: 20px;
+      text-align: center;
+      font-size: 24px;
+    }
+    .container {
+      max-width: 1000px;
+      margin: 40px auto;
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    .form-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    label {
+      font-weight: bold;
+    }
+    select, input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    button {
+      padding: 10px 20px;
+      background-color: #b9933b;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 10px;
+      text-align: center;
+    }
+    th {
+      background-color: #b9933b;
+      color: white;
+    }
+    #downloadBtn {
+      margin-top: 20px;
+      float: right;
+    }
+    .action-btn {
+      margin-bottom: 8px;
+      display: block;
+      width: 90px;
+      background-color: #b9933b;
+      color: white;
+    }
+    /* Tooltip styles */
+    .tooltip {
+      position: absolute;
+      background: #333;
+      color: #fff;
+      padding: 4px 10px;
+      border-radius: 5px;
+      font-size: 13px;
+      pointer-events: none;
+      z-index: 1000;
+      display: none;
+    }
+    #selectedUnit {
+      color: #b9933b;
+      font-weight: bold;
+      margin-top: 4px;
+      display: block;
+    }
+    #quantityError {
+      color: red;
+      display: none;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <i class="fas fa-tools"></i> Automatic BOQ Generator
+</header>
+
+<div class="container">
+  <div class="form-row">
+    <div style="flex: 1;">
+      <label for="category">Select Category:</label>
+      <select id="category" onchange="filterItems()"></select>
+    </div>
+    <div style="flex: 1;">
+      <label for="item">Select Item:</label>
+      <input type="text" id="itemSearch" placeholder="Search item..." style="margin-bottom: 6px; width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ccc;">
+      <select id="item"></select>
+      <span id="selectedUnit"></span>
+    </div>
+    <div style="flex: 1;">
+      <label for="quantity">Quantity:</label>
+      <input type="number" id="quantity" value="1" min="1" oninput="validateQuantity()">
+      <span id="quantityError">Enter a positive quantity.</span>
+    </div>
+    <div style="flex: 0 0 auto; align-self: flex-end; margin-left: 16px;">
+      <button id="addBoqBtn" onclick="addToBOQ()" disabled style="margin-top: 8px;">Add to BOQ</button>
+    </div>
+  </div>
+  <div id="unitDisplay" style="margin-bottom: 10px; font-weight: bold; color: #333;"></div>
+
+  <table id="boqTable">
+    <thead>
+      <tr>
+        <th>Category</th>
+        <th>Description</th>
+        <th>Unit</th>
+        <th>Rate</th>
+        <th>Quantity</th>
+        <th>Amount</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <button id="downloadBtn" onclick="downloadExcel()" style="margin-top: 32px; float: right;">Download BOQ as Excel</button>
+</div>
+
+<script>
+  // -----------------------------
+  // 1. Declare global variables
+  // -----------------------------
+  let sheetData = []; // holds all data from the Google Sheet
+  let boqItems = [];  // holds items added to the BOQ table
+
+  // URL of the published Google Apps Script Web App that serves sheet data as JSON
+  const sheetURL = 'https://script.google.com/macros/s/AKfycbxH9ztr9pidKOWWu_Jway8AAUdA6HinZnVbuJrQt2kt8QTGMdHcurkK7wytwZDo19akYg/exec';
+
+  // ----------------------------------------------------------
+  // 2. Fetch data from Google Sheet and populate categories
+  // ----------------------------------------------------------
+  fetch(sheetURL)
+    .then(res => {
+      if (!res.ok) throw new Error('Network response was not ok: ' + res.status);
+      return res.json();
+    })
+    .then(data => {
+      console.log('Fetched data:', data); // Debug log
+      sheetData = data; // Store data globally
+
+      // Extract unique categories from sheet data
+      const categories = [...new Set(sheetData.map(row => row.Category))];
+      const catSelect = document.getElementById("category");
+
+      // Populate category dropdown
+      categories.forEach(cat => {
+        const option = document.createElement("option");
+        option.value = cat;
+        option.textContent = cat;
+        catSelect.appendChild(option);
+      });
+
+      // Load items for the initially selected category
+      filterItems();
+    })
+    .catch(error => {
+      console.error('Error fetching sheet data:', error);
+      alert('Failed to load data from Google Sheet. Check the console for details.');
+    });
+
+  // ----------------------------------------------------
+  // 3. Populate items based on selected category
+  // ----------------------------------------------------
+  function filterItems() {
+    const category = document.getElementById("category").value;
+    const searchValue = document.getElementById("itemSearch") ? document.getElementById("itemSearch").value.trim().toLowerCase() : '';
+
+    // Filter items for selected category
+    let items = sheetData.filter(row => row.Category === category);
+    if (searchValue) {
+      items = items.filter(row => row.Description.toLowerCase().includes(searchValue));
+    }
+    const itemSelect = document.getElementById("item");
+    itemSelect.innerHTML = ""; // Clear previous options
+
+    // Populate item dropdown
+    items.forEach(row => {
+      const option = document.createElement("option");
+      option.value = JSON.stringify(row); // store whole row as string
+      option.textContent = row.Description; // show description
+      option.setAttribute('data-unit', row.Unit); // store unit for display
+      itemSelect.appendChild(option);
+    });
+
+    // Show unit for the initially selected item
+    showSelectedItemUnit();
+    itemSelect.onchange = showSelectedItemUnit;
+  }
+
+  function showSelectedItemUnit() {
+    const itemSelect = document.getElementById("item");
+    const unitSpan = document.getElementById("unitDisplay");
+    if (!itemSelect.value) {
+      unitSpan.textContent = '';
+      return;
+    }
+    const selectedOption = itemSelect.options[itemSelect.selectedIndex];
+    const unit = selectedOption ? selectedOption.getAttribute('data-unit') : '';
+    unitSpan.textContent = unit ? `Unit: ${unit}` : '';
+  }
+
+  // ----------------------------------------------------
+  // 4. Add selected item to the BOQ table
+  // ----------------------------------------------------
+  function addToBOQ() {
+    const quantity = parseFloat(document.getElementById("quantity").value);
+    if (isNaN(quantity) || quantity <= 0) {
+      validateQuantity();
+      return;
+    }
+    const selectedRow = JSON.parse(document.getElementById("item").value); // decode string to object
+    const amount = selectedRow.Rate * quantity;
+
+    // Add item to internal data array for Excel export
+    boqItems.push({
+      Category: selectedRow.Category,
+      Description: selectedRow.Description,
+      Unit: selectedRow.Unit,
+      Rate: selectedRow.Rate,
+      Quantity: quantity,
+      Amount: amount.toFixed(2)
+    });
+    renderBOQTable();
+  }
+
+  function renderBOQTable() {
+    const tbody = document.querySelector("#boqTable tbody");
+    tbody.innerHTML = '';
+    boqItems.forEach((item, idx) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><span id="cat-${idx}">${item.Category}</span></td>
+        <td><span id="desc-${idx}">${item.Description}</span></td>
+        <td><span id="unit-${idx}">${item.Unit}</span></td>
+        <td><span id="rate-${idx}">${item.Rate}</span></td>
+        <td><span id="qty-${idx}">${item.Quantity}</span></td>
+        <td><span id="amt-${idx}">${item.Amount}</span></td>
+        <td>
+          <button class="action-btn" onclick="editBOQItem(${idx})">Edit</button>
+          <button class="action-btn" onclick="deleteBOQItem(${idx})">Delete</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ----------------------------------------------------
+  // Edit/Delete BOQ Item
+  // ----------------------------------------------------
+  function editBOQItem(idx) {
+    const item = boqItems[idx];
+    const tr = document.querySelectorAll('#boqTable tbody tr')[idx];
+    tr.innerHTML = `
+      <td><input type="text" id="editCat-${idx}" value="${item.Category}" style="width:90px;"></td>
+      <td><input type="text" id="editDesc-${idx}" value="${item.Description}" style="width:180px;"></td>
+      <td><input type="text" id="editUnit-${idx}" value="${item.Unit}" style="width:60px;"></td>
+      <td><input type="number" id="editRate-${idx}" value="${item.Rate}" min="0" step="0.01" style="width:70px;"></td>
+      <td><input type="number" id="editQty-${idx}" value="${item.Quantity}" min="1" step="1" style="width:60px;"></td>
+      <td id="editAmt-${idx}">${item.Amount}</td>
+      <td>
+        <button class="action-btn" onclick="saveBOQItem(${idx})">Save</button>
+        <button class="action-btn" onclick="renderBOQTable()">Cancel</button>
+      </td>
+    `;
+    document.getElementById(`editRate-${idx}`).addEventListener('input', () => updateEditAmount(idx));
+    document.getElementById(`editQty-${idx}`).addEventListener('input', () => updateEditAmount(idx));
+  }
+
+  function updateEditAmount(idx) {
+    const rate = parseFloat(document.getElementById(`editRate-${idx}`).value) || 0;
+    const qty = parseFloat(document.getElementById(`editQty-${idx}`).value) || 0;
+    const amtCell = document.getElementById(`editAmt-${idx}`);
+    amtCell.textContent = (rate * qty).toFixed(2);
+  }
+
+  function saveBOQItem(idx) {
+    const cat = document.getElementById(`editCat-${idx}`).value.trim();
+    const desc = document.getElementById(`editDesc-${idx}`).value.trim();
+    const unit = document.getElementById(`editUnit-${idx}`).value.trim();
+    const rate = parseFloat(document.getElementById(`editRate-${idx}`).value);
+    const qty = parseFloat(document.getElementById(`editQty-${idx}`).value);
+    if (!cat || !desc || !unit || isNaN(rate) || rate < 0 || isNaN(qty) || qty <= 0) {
+      alert('Please enter valid values for all fields.');
+      return;
+    }
+    boqItems[idx].Category = cat;
+    boqItems[idx].Description = desc;
+    boqItems[idx].Unit = unit;
+    boqItems[idx].Rate = rate;
+    boqItems[idx].Quantity = qty;
+    boqItems[idx].Amount = (rate * qty).toFixed(2);
+    renderBOQTable();
+  }
+
+  function deleteBOQItem(idx) {
+    if (confirm('Are you sure you want to delete this item from BOQ?')) {
+      boqItems.splice(idx, 1);
+      renderBOQTable();
+    }
+  }
+
+  // ----------------------------------------------------
+  // 5. Export the BOQ as an Excel file using SheetJS
+  // ----------------------------------------------------
+  function downloadExcel() {
+    const worksheet = XLSX.utils.json_to_sheet(boqItems); // Convert JSON to Excel worksheet
+    const workbook = XLSX.utils.book_new();               // Create new workbook
+    XLSX.utils.book_append_sheet(workbook, worksheet, "BOQ"); // Add worksheet to workbook
+    XLSX.writeFile(workbook, "BOQ_Generated.xlsx");       // Trigger download
+  }
+
+  // ----------------------------------------------------
+  // 6. Validate quantity input
+  // ----------------------------------------------------
+  function validateQuantity() {
+    const quantityInput = document.getElementById('quantity');
+    const addBtn = document.getElementById('addBoqBtn');
+    const errorSpan = document.getElementById('quantityError');
+    const value = parseFloat(quantityInput.value);
+    if (isNaN(value) || value <= 0) {
+      addBtn.disabled = true;
+      errorSpan.style.display = 'inline';
+    } else {
+      addBtn.disabled = false;
+      errorSpan.style.display = 'none';
+    }
+  }
+
+  // Call validateQuantity on page load
+  window.addEventListener('DOMContentLoaded', validateQuantity);
+
+  // Add event listener for search box after DOM is loaded
+  window.addEventListener('DOMContentLoaded', function() {
+    const itemSearch = document.getElementById('itemSearch');
+    if (itemSearch) {
+      itemSearch.addEventListener('input', filterItems);
+    }
+  });
+</script>
+
+</body>
+</html>
